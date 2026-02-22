@@ -62,6 +62,7 @@ public:
 
 private:
 	KDL::Chain create_xarm6_chain() {
+		float gripper_length = 0.155;
         KDL::Chain chain;
         // DH parameters from your ROS1 code
         chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::None), KDL::Frame::DH(0, 0, 0, 0)));
@@ -70,7 +71,7 @@ private:
         chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::RotZ), KDL::Frame::DH(0.0775, -M_PI_2, 0, 1.385)));
         chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::RotZ), KDL::Frame::DH(0, M_PI_2, 0.3425, 0)));
         chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::RotZ), KDL::Frame::DH(0.076, -M_PI_2, 0, 0)));
-        chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::RotZ), KDL::Frame::DH(0, 0, 0.097, 0)));
+        chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::RotZ), KDL::Frame::DH(0, 0, 0.097 + gripper_length, 0)));
         return chain;
     }
     
@@ -118,6 +119,7 @@ private:
 			xyzrpy = update_xyzrpy(cart_pos);
 			
 			xyzrpy_pub_->publish(xyzrpy);
+			publish_tf(cart_pos);
 			
 		}// end of kintamitc_status
 
@@ -137,6 +139,27 @@ private:
 		_xyzrpy.angular.z = yaw;
 		return _xyzrpy;
 	}
+	
+	void publish_tf(KDL::Frame & frame) {
+        geometry_msgs::msg::TransformStamped t;
+        t.header.stamp = this->get_clock()->now();
+        t.header.frame_id = "world";
+        t.child_frame_id = "fk_tooltip";
+        t.transform.translation.x = frame.p.x();
+        t.transform.translation.y = frame.p.y();
+        t.transform.translation.z = frame.p.z();
+        
+        double r, p, y;
+        frame.M.GetRPY(r, p, y);
+        tf2::Quaternion q;
+        q.setRPY(r, p, y);
+        t.transform.rotation.x = q.x();
+        t.transform.rotation.y = q.y();
+        t.transform.rotation.z = q.z();
+        t.transform.rotation.w = q.w();
+        tf_broadcaster_->sendTransform(t);
+    }
+
     
 
    
@@ -159,7 +182,7 @@ private:
     bool joints_initialized_ = false;
     bool ref_received_ = false;
     geometry_msgs::msg::Twist xyzrpy;
-    //geometry_msgs::msg::Twist update_xyzrpy(KDL::Frame _cartpos);
+    
 };
 
 int main(int argc, char ** argv) {
