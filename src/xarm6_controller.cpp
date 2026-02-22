@@ -40,7 +40,20 @@ public:
         // TF Broadcaster
         tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
-        
+        // Initialize KDL
+        chain_ = create_xarm6_chain();
+        fk_solver_ = std::make_unique<KDL::ChainFkSolverPos_recursive>(chain_);
+        auto ik_vel_solver = std::make_shared<KDL::ChainIkSolverVel_pinv>(chain_);
+        ik_pos_solver_ = std::make_unique<KDL::ChainIkSolverPos_NR>(chain_, *fk_solver_, *ik_vel_solver, 100, 1e-4);
+
+        // get the number of joints from the chain
+		no_of_joints = chain_.getNrOfJoints();
+		// define a joint array in KDL format for the joint positions
+    	q_current_ = KDL::JntArray(no_of_joints);
+		// define a joint array in KDL format for the next joint positions		
+        q_next_ = KDL::JntArray(no_of_joints);
+
+
 
         // Timer for the loop (replaces ros::Rate)
         timer_ = this->create_wall_timer(
@@ -48,6 +61,18 @@ public:
     }
 
 private:
+	KDL::Chain create_xarm6_chain() {
+        KDL::Chain chain;
+        // DH parameters from your ROS1 code
+        chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::None), KDL::Frame::DH(0, 0, 0, 0)));
+        chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::RotZ), KDL::Frame::DH(0, -M_PI_2, 0.267, 0)));
+        chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::RotZ), KDL::Frame::DH(0.28948, 0, 0, -1.385)));
+        chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::RotZ), KDL::Frame::DH(0.0775, -M_PI_2, 0, 1.385)));
+        chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::RotZ), KDL::Frame::DH(0, M_PI_2, 0.3425, 0)));
+        chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::RotZ), KDL::Frame::DH(0.076, -M_PI_2, 0, 0)));
+        chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::RotZ), KDL::Frame::DH(0, 0, 0.097, 0)));
+        return chain;
+    }
     
     void joint_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg) {
         // Map joint names to KDL indices (assumes order, but ideally find by name)
@@ -60,7 +85,8 @@ private:
     	for (size_t i = 0; i < msg->name.size(); ++i) {
         	for (size_t j = 0; j < expected_order.size(); ++j) {
             	if (msg->name[i] == expected_order[j]) {
-                	std::cout <<"Read this "<<msg->position[i]<< " for joint"<< j+1 << "\n";
+            		q_current_(j) = msg->position[i];
+                	//std::cout <<"Read this "<<msg->position[i]<< " for joint"<< j+1 << "\n";
                 	found_count++;
             	}
         	}
@@ -83,14 +109,44 @@ private:
         if (!joints_initialized_){std::cout <<"have not received the joint coordinates yet!\n"; return;}
 
         KDL::Frame cart_pos;
-        
-    }
+        // flag for the fk results
+		
+		
+		if (fk_solver_->JntToCart(q_current_, cart_pos) >= 0) {
+			//std::cout << "inside fk" << std::endl;
 
+			xyzrpy = update_xyzrpy(cart_pos);
+			
+			xyzrpy_pub_->publish(xyzrpy);
+			
+		}// end of kintamitc_status
+
+    }
+	geometry_msgs::msg::Twist update_xyzrpy(KDL::Frame _cartpos){
+		// define roll, pitch, yaw variables
+		double roll, pitch, yaw;
+		//extract the roll, pitch, yaw from the KDL frame after the fk calculations
+		_cartpos.M.GetRPY(roll,pitch, yaw);
+		geometry_msgs::msg::Twist _xyzrpy;
+		// update and return the values
+		_xyzrpy.linear.x = _cartpos.p[0];
+		_xyzrpy.linear.y = _cartpos.p[1];
+		_xyzrpy.linear.z = _cartpos.p[2];
+		_xyzrpy.angular.x = roll;
+		_xyzrpy.angular.y = pitch;
+		_xyzrpy.angular.z = yaw;
+		return _xyzrpy;
+	}
     
 
    
     // Members
-    
+    // Members
+    KDL::Chain chain_;
+    std::unique_ptr<KDL::ChainFkSolverPos_recursive> fk_solver_;
+    std::unique_ptr<KDL::ChainIkSolverPos_NR> ik_pos_solver_;
+    KDL::JntArray q_current_, q_next_;
+    unsigned int no_of_joints;
     
     rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr cmd_pub_;
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr xyzrpy_pub_;
@@ -102,6 +158,8 @@ private:
     geometry_msgs::msg::Twist current_ref_;
     bool joints_initialized_ = false;
     bool ref_received_ = false;
+    geometry_msgs::msg::Twist xyzrpy;
+    //geometry_msgs::msg::Twist update_xyzrpy(KDL::Frame _cartpos);
 };
 
 int main(int argc, char ** argv) {
