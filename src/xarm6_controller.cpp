@@ -7,7 +7,7 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 
-// KDL remains mostly the same, but check includes
+// KDL 
 #include <kdl/chain.hpp>
 #include <kdl/chainfksolverpos_recursive.hpp>
 #include <kdl/chainiksolvervel_pinv.hpp>
@@ -40,22 +40,28 @@ public:
         // TF Broadcaster
         tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
-        // Initialize KDL
-        chain_ = create_xarm6_chain();
-        fk_solver_ = std::make_unique<KDL::ChainFkSolverPos_recursive>(chain_);
-        auto ik_vel_solver = std::make_shared<KDL::ChainIkSolverVel_pinv>(chain_);
-        ik_pos_solver_ = std::make_unique<KDL::ChainIkSolverPos_NR>(chain_, *fk_solver_, *ik_vel_solver, 100, 1e-4);
 
-        // get the number of joints from the chain
+
+
+		chain_ = create_xarm6_chain();
+		// get the number of joints from the chain
 		no_of_joints = chain_.getNrOfJoints();
+		RCLCPP_INFO(this->get_logger(), "Chain joints: %d", no_of_joints); // MUST BE 6
+
+		// Initialize solvers 
+		fk_solver_ = std::make_unique<KDL::ChainFkSolverPos_recursive>(chain_);
+		ik_vel_solver_ = std::make_shared<KDL::ChainIkSolverVel_pinv>(chain_);
+		ik_pos_solver_ = std::make_unique<KDL::ChainIkSolverPos_NR>(chain_, *fk_solver_, *ik_vel_solver_, 100, 1e-4);
+        
+        
 		// define a joint array in KDL format for the joint positions
     	q_current_ = KDL::JntArray(no_of_joints);
 		// define a joint array in KDL format for the next joint positions		
         q_next_ = KDL::JntArray(no_of_joints);
 
+		std::cout << "number of elements of q and q_n:"<<q_current_.data.size()<< " ---"<<q_next_.data.size()<<"\n";
 
-
-        // Timer for the loop (replaces ros::Rate)
+        // Timer for the loop 
         timer_ = this->create_wall_timer(
             std::chrono::milliseconds(100), std::bind(&XArm6Controller::control_loop, this));
     }
@@ -64,7 +70,7 @@ private:
 	KDL::Chain create_xarm6_chain() {
 		float gripper_length = 0.155;
         KDL::Chain chain;
-        // DH parameters from your ROS1 code
+        // DH parameters 
         chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::None), KDL::Frame::DH(0, 0, 0, 0)));
         chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::RotZ), KDL::Frame::DH(0, -M_PI_2, 0.267, 0)));
         chain.addSegment(KDL::Segment(KDL::Joint(KDL::Joint::RotZ), KDL::Frame::DH(0.28948, 0, 0, -1.385)));
@@ -76,7 +82,7 @@ private:
     }
     
     void joint_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg) {
-        // Map joint names to KDL indices (assumes order, but ideally find by name)
+        // Map joint names to KDL indices (the gripper messes up the order!)
         
         std::vector<std::string> expected_order = {
         	"joint1", "joint2", "joint3", "joint4", "joint5", "joint6"
@@ -102,29 +108,13 @@ private:
     }
 
     void ref_callback(const geometry_msgs::msg::Twist::SharedPtr msg) {
+  
         current_ref_ = *msg;
         ref_received_ = true;
+        //std::cout << "received: "<< current_ref_.linear.x<< "  "<< current_ref_.linear.y<< "  "<< current_ref_.linear.z<< "  "<< current_ref_.angular.x<< "  "<<  current_ref_.angular.y<< "  "<<  current_ref_.angular.z<< " \n";
     }
-
-    void control_loop() {
-        if (!joints_initialized_){std::cout <<"have not received the joint coordinates yet!\n"; return;}
-
-        KDL::Frame cart_pos;
-        // flag for the fk results
-		
-		
-		if (fk_solver_->JntToCart(q_current_, cart_pos) >= 0) {
-			//std::cout << "inside fk" << std::endl;
-
-			xyzrpy = update_xyzrpy(cart_pos);
-			
-			xyzrpy_pub_->publish(xyzrpy);
-			publish_tf(cart_pos);
-			
-		}// end of kintamitc_status
-
-    }
-	geometry_msgs::msg::Twist update_xyzrpy(KDL::Frame _cartpos){
+    
+    geometry_msgs::msg::Twist update_xyzrpy(KDL::Frame _cartpos){
 		// define roll, pitch, yaw variables
 		double roll, pitch, yaw;
 		//extract the roll, pitch, yaw from the KDL frame after the fk calculations
@@ -139,6 +129,55 @@ private:
 		_xyzrpy.angular.z = yaw;
 		return _xyzrpy;
 	}
+	
+	void send_trajectory() {
+        trajectory_msgs::msg::JointTrajectory msg;
+       
+        msg.joint_names = {"joint1", "joint2", "joint3", "joint4", "joint5", "joint6"};
+		
+        trajectory_msgs::msg::JointTrajectoryPoint point;
+        // ensure the ranges are correct and the joints do not flip!
+        for (int i = 0; i < 6; ++i) {
+        	while(q_next_(i) > M_PI)
+				q_next_(i) -= 2*M_PI;
+		 	while(q_next_(i) < -M_PI)
+				q_next_(i) += 2*M_PI;
+        	point.positions.push_back(q_next_(i));
+        }
+        // must match this to the loop rate.
+        point.time_from_start = rclcpp::Duration::from_seconds(0.1);
+        msg.points.push_back(point);
+        cmd_pub_->publish(msg);
+    }
+
+
+    void control_loop() {
+        if (!joints_initialized_){std::cout <<"have not received the joint coordinates yet!\n"; return;}
+
+        KDL::Frame cart_pos;
+        // flag for the fk results
+		if (fk_solver_->JntToCart(q_current_, cart_pos) >= 0) {
+			xyzrpy = update_xyzrpy(cart_pos);
+			xyzrpy_pub_->publish(xyzrpy);
+			publish_tf(cart_pos);
+			
+		}// end of FK
+		
+		
+	    // If reference received, calculate IK and publish
+        if (ref_received_) {
+             KDL::Frame target_frame;
+             target_frame.p = KDL::Vector(current_ref_.linear.x, current_ref_.linear.y, current_ref_.linear.z);
+             target_frame.M = KDL::Rotation::RPY(current_ref_.angular.x, current_ref_.angular.y, current_ref_.angular.z);
+             // solve IK and give the next joint coordinates
+             if (ik_pos_solver_->CartToJnt(q_current_, target_frame, q_next_) >= 0) {
+                  send_trajectory();
+             }
+        }
+
+
+    }
+
 	
 	void publish_tf(KDL::Frame & frame) {
         geometry_msgs::msg::TransformStamped t;
@@ -163,10 +202,11 @@ private:
     
 
    
-    // Members
+    
     // Members
     KDL::Chain chain_;
     std::unique_ptr<KDL::ChainFkSolverPos_recursive> fk_solver_;
+    std::shared_ptr<KDL::ChainIkSolverVel_pinv> ik_vel_solver_;
     std::unique_ptr<KDL::ChainIkSolverPos_NR> ik_pos_solver_;
     KDL::JntArray q_current_, q_next_;
     unsigned int no_of_joints;
