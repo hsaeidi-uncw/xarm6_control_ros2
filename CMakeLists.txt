@@ -19,6 +19,7 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(orocos_kdl REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(ruckig REQUIRED)
 
 
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -26,17 +27,15 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   DEPENDENCIES geometry_msgs std_msgs
 )
 
-ament_export_dependencies(rosidl_default_runtime)
-
 
 add_executable(xarm6_controller src/xarm6_controller.cpp)
 
-# Replace your previous target_link_libraries with this:
+
 target_link_libraries(xarm6_controller 
   ${orocos_kdl_LIBRARIES}
 )
 
-# Also ensure the include directories are present
+# Ensure the include directories are present
 target_include_directories(xarm6_controller PUBLIC
   ${orocos_kdl_INCLUDE_DIRS}
 )
@@ -49,12 +48,16 @@ ament_target_dependencies(xarm6_controller
   tf2
   tf2_ros
   tf2_geometry_msgs
+  rosidl_default_runtime
 )
 
 install(TARGETS xarm6_controller
   DESTINATION lib/${PROJECT_NAME})
   
-
+install(PROGRAMS
+  scripts/simple_planner.py
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 
 
@@ -69,5 +72,7 @@ if(BUILD_TESTING)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
+
+ament_export_dependencies(rosidl_default_runtime)
 
 ament_package()
