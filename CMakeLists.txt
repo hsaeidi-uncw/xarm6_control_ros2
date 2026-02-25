@@ -18,6 +18,16 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(orocos_kdl REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/Plan.msg"
+  DEPENDENCIES geometry_msgs std_msgs
+)
+
+ament_export_dependencies(rosidl_default_runtime)
+
 
 add_executable(xarm6_controller src/xarm6_controller.cpp)
 
@@ -43,6 +53,10 @@ ament_target_dependencies(xarm6_controller
 
 install(TARGETS xarm6_controller
   DESTINATION lib/${PROJECT_NAME})
+  
+
+
+
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
