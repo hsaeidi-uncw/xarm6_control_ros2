@@ -41,13 +41,38 @@ private:
         rob_pos_ = *msg;
         rob_pos_received_ = true;
     }
+    
+    
+    // Comparison function to check if two plans are identical
+    bool is_new_plan(const xarm6_control_ros2::msg::Plan& new_plan) {
+        if (plan_.points.size() != new_plan.points.size()) {
+            return true;
+        }
+        for (size_t i = 0; i < plan_.points.size(); ++i) {
+            if (plan_.points[i].linear.x != new_plan.points[i].linear.x ||
+                plan_.points[i].linear.y != new_plan.points[i].linear.y ||
+                plan_.points[i].linear.z != new_plan.points[i].linear.z ||
+                plan_.points[i].angular.x != new_plan.points[i].angular.x ||
+                plan_.points[i].angular.y != new_plan.points[i].angular.y ||
+                plan_.points[i].angular.z != new_plan.points[i].angular.z) {
+                return true;
+            }
+        }
+        return false;
+    }
 
-    void get_plan(const xarm6_control_ros2::msg::Plan::SharedPtr msg) {
-        plan_ = *msg;
-        plan_available_ = true;
-        number_of_points_ = plan_.points.size();
-        initialize_plan_parameters();
-        RCLCPP_INFO(this->get_logger(), "New plan received. Starting motion.");
+   void get_plan(const xarm6_control_ros2::msg::Plan::SharedPtr msg) {
+        // Only initialize if the plan has changed
+        if (is_new_plan(*msg)) {
+            RCLCPP_INFO(this->get_logger(), "New unique plan received. Re-initializing parameters.");
+            plan_ = *msg;
+            plan_available_ = true;
+            number_of_points_ = plan_.points.size();
+            ctr_ = 2; // Reset waypoint counter
+            initialize_plan_parameters();
+        } else {
+            RCLCPP_DEBUG(this->get_logger(), "Received plan is identical to current plan. Ignoring.");
+        }
     }
 
     void initialize_plan_parameters() {
