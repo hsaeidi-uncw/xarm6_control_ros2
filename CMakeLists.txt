@@ -20,6 +20,8 @@ find_package(moveit_ros_planning_interface REQUIRED)
 find_package(orocos_kdl REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(ruckig REQUIRED)
+find_library(REFLEXXES_LIBRARY NAMES ReflexxesTypeII REQUIRED)
+find_path(REFLEXXES_INCLUDE_DIR NAMES ReflexxesAPI.h REQUIRED)
 
 
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -50,6 +52,30 @@ ament_target_dependencies(xarm6_controller
   tf2_geometry_msgs
   rosidl_default_runtime
 )
+add_executable(task_space_traj src/task_space_traj.cpp)
+
+target_include_directories(task_space_traj PRIVATE 
+  ${REFLEXXES_INCLUDE_DIR}
+  include
+)
+
+target_link_libraries(task_space_traj ${REFLEXXES_LIBRARY})
+
+# Standard dependencies
+ament_target_dependencies(task_space_traj
+  rclcpp
+  geometry_msgs
+  rosidl_default_runtime
+)
+
+# CRITICAL: Link generated message headers
+rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
+target_link_libraries(task_space_traj "${cpp_typesupport_target}")
+
+
+
+install(TARGETS task_space_traj
+  DESTINATION lib/${PROJECT_NAME})
 
 install(TARGETS xarm6_controller
   DESTINATION lib/${PROJECT_NAME})
