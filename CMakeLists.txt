@@ -56,6 +56,7 @@ install(TARGETS xarm6_controller
   
 install(PROGRAMS
   scripts/simple_planner.py
+  scripts/simple_pos_control.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
