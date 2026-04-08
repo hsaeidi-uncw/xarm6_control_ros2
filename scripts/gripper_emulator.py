@@ -37,7 +37,7 @@ class XarmGripperMockServer(Node):
         # Mark the goal as successful
         goal_handle.succeed()
 
-        # Prepare the result exactly like the CLI output you provided
+        # Prepare the result like the CLI outputs
         result = GripperCommand.Result()
         # send the same number as feedback since the gripper does not work in the simulator
         result.position = target_position 
